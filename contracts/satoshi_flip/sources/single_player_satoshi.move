@@ -106,3 +106,133 @@ public fun finish_game(
     });
 }
 
+public fun dispute_and_win(house_data: &mut HouseData, game_id: ID, ctx: &mut TxContext) {
+    // Ensure that the game exists.
+    assert!(game_exists(house_data, game_id), EGameDoesNotExist);
+
+    let Game {
+        id,
+        guess_placed_epoch,
+        total_stake,
+        guess: _,
+        player,
+        vrf_input: _,
+        fee_bp: _,
+    } = dof::remove(house_data.borrow_mut(), game_id);
+
+    object::delete(id);
+
+    let caller_epoch = ctx.epoch();
+    let cancel_epoch = guess_placed_epoch + EPOCHS_CANCEL_AFTER;
+    // Ensure that minimum epochs have passed before user can cancel.
+    assert!(cancel_epoch <= caller_epoch, ECanNotChallengeYet);
+
+    transfer::public_transfer(total_stake.into_coin(ctx), player);
+
+    emit(Outcome {
+        game_id,
+        status: CHALLENGED_STATE,
+    });
+}
+  // --------------- Read-only References ---------------
+
+  public fun guess_placed_epoch(game: &Game): u64 {
+    game.guess_placed_epoch
+  }
+
+  public fun stake(game: &Game): u64 {
+    game.total_stake.value()
+  }
+
+  public fun guess(game: &Game): u8 {
+    map_guess(game.guess)
+  }
+
+  public fun player(game: &Game): address {
+    game.player
+  }
+
+  public fun vrf_input(game: &Game): vector<u8> {
+    game.vrf_input
+  }
+
+  public fun fee_in_bp(game: &Game): u16 {
+    game.fee_bp
+  }
+
+  // --------------- Helper functions ---------------
+
+  /// Public helper function to calculate the amount of fees to be paid.
+  public fun fee_amount(game_stake: u64, fee_in_bp: u16): u64 {
+    ((((game_stake / (GAME_RETURN as u64)) as u128) * (fee_in_bp as u128) / 10_000) as u64)
+  }
+
+  /// Helper function to check if a game exists.
+  public fun game_exists(house_data: &HouseData, game_id: ID): bool {
+    dof::exists_(house_data.borrow(), game_id)
+  }
+
+  /// Helper function to check that a game exists and return a reference to the game Object.
+  /// Can be used in combination with any accessor to retrieve the desired game field.
+  public fun borrow_game(game_id: ID, house_data: &HouseData): &Game {
+    assert!(game_exists(house_data, game_id), EGameDoesNotExist);
+    dof::borrow(house_data.borrow(), game_id)
+  }
+
+  /// Internal helper function used to create a new game.
+  fun internal_start_game(guess: String, counter: &mut Counter, coin: Coin<SUI>, house_data: &mut HouseData, fee_bp: u16, ctx: &mut TxContext): (ID, Game) {
+    // Ensure guess is valid.
+    map_guess(guess);
+    let user_stake = coin.value();
+    // Ensure that the stake is not higher than the max stake.
+    assert!(user_stake <= house_data.max_stake(), EStakeTooHigh);
+    // Ensure that the stake is not lower than the min stake.
+    assert!(user_stake >= house_data.min_stake(), EStakeTooLow);
+    // Ensure that the house has enough balance to play for this game.
+    assert!(house_data.balance() >= user_stake, EInsufficientHouseBalance);
+
+    // Get the house's stake.
+    let mut total_stake = house_data.borrow_balance_mut().split(user_stake);
+    coin::put(&mut total_stake, coin);
+
+    let vrf_input = counter.get_vrf_input_and_increment();
+
+    let id = object::new(ctx);
+    let game_id = object::uid_to_inner(&id);
+
+    let new_game = Game {
+      id,
+      guess_placed_epoch: ctx.epoch(),
+      total_stake,
+      guess,
+      player: ctx.sender(),
+      vrf_input,
+      fee_bp
+    };
+
+    emit(NewGame {
+      game_id,
+      player: ctx.sender(),
+      vrf_input,
+      guess,
+      user_stake,
+      fee_bp
+    });
+
+    (game_id, new_game)
+  }
+
+  /// Helper function to map (H)EADS and (T)AILS to 0 and 1 respectively.
+  /// H = 0
+  /// T = 1
+  fun map_guess(guess: String): u8 {
+    let heads = HEADS;
+    let tails = TAILS;
+    assert!(guess.bytes() == heads || guess.bytes() == tails, EInvalidGuess);
+
+    if (guess.bytes() == heads) {
+      0
+    } else {
+      1
+    }
+  }
