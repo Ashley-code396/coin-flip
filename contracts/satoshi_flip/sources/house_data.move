@@ -16,7 +16,7 @@ public struct HouseData has key {
     max_stake: u64,
     min_stake: u64,
     fees: Balance<SUI>, //Portion of bets house keeps as profit
-    base_fees_in_bp: u16, //Profit fee rate
+    base_fee_in_bp: u16, //Profit fee rate
 }
 
 public struct HouseCap has key {
@@ -49,7 +49,7 @@ public fun initiliaze_house_data(
         max_stake: 50_000_000_000,
         min_stake: 1_000_000_000,
         fees: balance::zero(),
-        base_fees_in_bp: 100, //1% in basis points
+        base_fee_in_bp: 100, //1% in basis points
     };
 
     let HouseCap { id } = house_cap;
@@ -92,31 +92,65 @@ public fun update_min_stake(house_data: &mut HouseData, min_stake: u64, ctx: &mu
     house_data.min_stake = min_stake;
 }
 
-//Getter functions
+// --------------- Mutable References ---------------
+
+public(package) fun borrow_balance_mut(house_data: &mut HouseData): &mut Balance<SUI> {
+    &mut house_data.balance
+}
+
+public(package) fun borrow_fees_mut(house_data: &mut HouseData): &mut Balance<SUI> {
+    &mut house_data.fees
+}
+
+public(package) fun borrow_mut(house_data: &mut HouseData): &mut UID {
+    &mut house_data.id
+}
+
+// --------------- Read-only References ---------------
+
+/// Returns a reference to the house id.
+public(package) fun borrow(house_data: &HouseData): &UID {
+    &house_data.id
+}
+
+/// Returns the balance of the house.
 public fun balance(house_data: &HouseData): u64 {
     house_data.balance.value()
 }
 
-public fun fees(house_data: &HouseData): u64 {
-    house_data.fees.value()
-}
-
+/// Returns the address of the house.
 public fun house(house_data: &HouseData): address {
     house_data.house
 }
 
+/// Returns the public key of the house.
 public fun public_key(house_data: &HouseData): vector<u8> {
     house_data.public_key
 }
 
+/// Returns the max stake of the house.
 public fun max_stake(house_data: &HouseData): u64 {
     house_data.max_stake
 }
 
+/// Returns the min stake of the house.
 public fun min_stake(house_data: &HouseData): u64 {
     house_data.min_stake
 }
 
+/// Returns the fees of the house.
+public fun fees(house_data: &HouseData): u64 {
+    house_data.fees.value()
+}
+
+/// Returns the base fee.
 public fun base_fee_in_bp(house_data: &HouseData): u16 {
-    house_data.base_fees_in_bp
+    house_data.base_fee_in_bp
+}
+
+// --------------- Test-only Functions ---------------
+
+#[test_only]
+public fun init_for_testing(ctx: &mut TxContext) {
+    init(HOUSE_DATA {}, ctx);
 }
